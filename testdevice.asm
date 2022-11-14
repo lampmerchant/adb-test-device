@@ -816,7 +816,7 @@ AD0Ls30	btfss	AP_FLAG,AP_RST	;If the flag is up for a reset or a command,
 	movlw	B'00110001'	;Create a mini outbound packet for the host that
 	movwi	FSR0++		; indicates that handler has been changed
 	bcf	FSR0L,4		; "
-	movf	AP_BUF,W	; "
+	incf	AP_BUF,W	; "
 	movwf	INDF0		; "
 	bra	AD0Lsn1		;Send it and return to main
 AD0Ls31	btfss	A0_R3H,7	;If a collision has not been detected, skip
