@@ -27,6 +27,7 @@
 
 	list		P=PIC12F1840, F=INHX32, ST=OFF, MM=OFF, R=DEC, X=ON
 	#include	P12F1840.inc
+	errorlevel	-302	;Suppress "register not in bank 0" messages
 	__config	_CONFIG1, _FOSC_INTOSC & _WDTE_OFF & _PWRTE_ON & _MCLRE_OFF & _CP_OFF & _CPD_OFF & _BOREN_OFF & _CLKOUTEN_OFF & _IESO_OFF & _FCMEN_OFF
 			;_FOSC_INTOSC	Internal oscillator, I/O on RA5
 			;_WDTE_OFF	Watchdog timer disabled
@@ -74,6 +75,11 @@ AP_DONE	equ	3	;Set when transmission or reception done, user clears
 AP_TXI	equ	2	;User sets after filling AP_BUF, interrupt clears
 AP_SRQ	equ	1	;User sets to request service, user clears
 AP_RISE	equ	0	;Set when FSA should be entered on a rising edge too
+
+			;A*_R3H:
+A_COL	equ	7	;Set when a collision has occurred
+A_EXCEV	equ	6	;Clear when an exceptional event has occurred
+A_SRQEN	equ	5	;Set when service requests are enabled
 
 
 ;;; Variable Storage ;;;
@@ -467,10 +473,10 @@ Main0	btfsc	AP_FLAG,AP_RST	;Branch to reset if a reset was received, else
 	goto	Main		; "
 	btfsc	INDF0,7		;If the device whose talk 0 response is on top
 	bra	Main1		; of the queue can send an SRQ, then send an
-	btfsc	A0_R3H,5	; SRQ, and in either case, return to main
+	btfsc	A0_R3H,A_SRQEN	; SRQ, and in either case, return to main
 	bsf	AP_FLAG,AP_SRQ	; "
 	bra	Main		; "	
-Main1	btfsc	A1_R3H,5	; "
+Main1	btfsc	A1_R3H,A_SRQEN	; "
 	bsf	AP_FLAG,AP_SRQ	; "
 	bra	Main		; "
 
@@ -582,7 +588,7 @@ QueueDev0Set
 	addlw	1		; "
 	addwf	R_QPOP,F	; "
 	bcf	R_QPOP,7	; "
-	bcf	A0_R3H,6	;If the length of this packet is 0, set the
+	bcf	A0_R3H,A_EXCEV	;If the length of this packet is 0, set the
 	movf	INDF0,W		; exceptional event flag to 0 and make no other
 	andlw	B'00001111'	; changes
 	btfsc	STATUS,Z	; "
@@ -633,7 +639,7 @@ QueueDev1Set
 	addlw	1		; "
 	addwf	R_QPOP,F	; "
 	bcf	R_QPOP,7	; "
-	bcf	A1_R3H,6	;If the length of this packet is 0, set the
+	bcf	A1_R3H,A_EXCEV	;If the length of this packet is 0, set the
 	movf	INDF0,W		; exceptional event flag to 0 and make no other
 	andlw	B'00001111'	; changes
 	btfsc	STATUS,Z	; "
@@ -819,13 +825,13 @@ AD0Ls30	btfss	AP_FLAG,AP_RST	;If the flag is up for a reset or a command,
 	incf	AP_BUF,W	; "
 	movwf	INDF0		; "
 	bra	AD0Lsn1		;Send it and return to main
-AD0Ls31	btfss	A0_R3H,7	;If a collision has not been detected, skip
+AD0Ls31	btfss	A0_R3H,A_COL	;If a collision has not been detected, skip
 	bra	AD0Ls33		; ahead to change the address; if one has been
-	bcf	A0_R3H,7	; detected, clear it and ignore this command
+	bcf	A0_R3H,A_COL	; detected, clear it and ignore this command
 	goto	Main		; "
-AD0Ls32	bcf	A0_R3H,5	;Copy the state of the SRQ enable bit to the SRQ
-	btfsc	FSR0L,5		; enable flag and to our copy of register 3
-	bsf	A0_R3H,5	; "
+AD0Ls32	bcf	A0_R3H,A_SRQEN	;Copy the state of the SRQ enable bit to the SRQ
+	btfsc	FSR0L,A_SRQEN	; enable flag and to our copy of register 3
+	bsf	A0_R3H,A_SRQEN	; "
 AD0Ls33	movlw	B'00001111'	;Accept the low four bits of the first received
 	andwf	FSR0L,F		; byte as our new address and we're done
 	movf	A0_R3H,W	; "
@@ -874,9 +880,9 @@ AD0Tk01	btfss	AP_FLAG,AP_RST	;If the flag is up for a reset or a command,
 	goto	CheckCts	; "
 	btfss	AP_FLAG,AP_COL	;If the flag is up for a collision, handle it,
 	bra	AD0Tk01		; else loop to keep waiting until done
-AD0Tk02	bsf	A0_R3H,7	;We collided, so set the collision flag and
+AD0Tk02	bsf	A0_R3H,A_COL	;We collided, so set the collision flag and
 	goto	CheckCts	; return to main
-AD0Tk03	btfsc	A1_R3H,5	;The packet is meant to be sent by the other
+AD0Tk03	btfsc	A1_R3H,A_SRQEN	;The packet is meant to be sent by the other
 	bsf	AP_FLAG,AP_SRQ	; device, so effect an SRQ (if the other device
 	goto	Main		; -can- send an SRQ) and return to main
 
@@ -952,7 +958,7 @@ AdbDevice0Talk3
 	movf	A0_R3H,W	;Load the high byte of register 3 for transmit,
 	andlw	B'01110000'	; clearing the MSB (which we use as a collision
 	movwf	AP_BUF		; flag) and the address
-	bsf	A0_R3H,6	;Set the exceptional event bit if it was clear
+	bsf	A0_R3H,A_EXCEV	;Set the exceptional event bit if it was clear
 	movlb	0		;Get a pseudorandom four-bit number and put it
 	movf	TMR1H,W		; into the low nibble of the buffer; this way
 	xorwf	TMR1L,W		; we replace address (which the host already
@@ -1078,13 +1084,13 @@ AD1Ls30	btfss	AP_FLAG,AP_RST	;If the flag is up for a reset or a command,
 	movf	AP_BUF,W	; "
 	movwf	INDF0		; "
 	bra	AD1Lsn1		;Send it and return to main
-AD1Ls31	btfss	A1_R3H,7	;If a collision has not been detected, skip
+AD1Ls31	btfss	A1_R3H,A_COL	;If a collision has not been detected, skip
 	bra	AD1Ls33		; ahead to change the address; if one has been
-	bcf	A1_R3H,7	; detected, clear it and ignore this command
+	bcf	A1_R3H,A_COL	; detected, clear it and ignore this command
 	goto	Main		; "
-AD1Ls32	bcf	A1_R3H,5	;Copy the state of the SRQ enable bit to the SRQ
-	btfsc	FSR0L,5		; enable flag and to our copy of register 3
-	bsf	A1_R3H,5	; "
+AD1Ls32	bcf	A1_R3H,A_SRQEN	;Copy the state of the SRQ enable bit to the SRQ
+	btfsc	FSR0L,A_SRQEN	; enable flag and to our copy of register 3
+	bsf	A1_R3H,A_SRQEN	; "
 AD1Ls33	movlw	B'00001111'	;Accept the low four bits of the first received
 	andwf	FSR0L,F		; byte as our new address and we're done
 	movf	A1_R3H,W	; "
@@ -1133,9 +1139,9 @@ AD1Tk01	btfss	AP_FLAG,AP_RST	;If the flag is up for a reset or a command,
 	goto	CheckCts	; "
 	btfss	AP_FLAG,AP_COL	;If the flag is up for a collision, handle it,
 	bra	AD1Tk01		; else loop to keep waiting until done
-AD1Tk02	bsf	A1_R3H,7	;We collided, so set the collision flag and
+AD1Tk02	bsf	A1_R3H,A_COL	;We collided, so set the collision flag and
 	goto	CheckCts	; return to main
-AD1Tk03	btfsc	A0_R3H,5	;The packet is meant to be sent by the other
+AD1Tk03	btfsc	A0_R3H,A_SRQEN	;The packet is meant to be sent by the other
 	bsf	AP_FLAG,AP_SRQ	; device, so effect an SRQ (if the other device
 	goto	Main		; -can- send an SRQ) and return to main
 
@@ -1211,7 +1217,7 @@ AdbDevice1Talk3
 	movf	A1_R3H,W	;Load the high byte of register 3 for transmit,
 	andlw	B'01110000'	; clearing the MSB (which we use as a collision
 	movwf	AP_BUF		; flag) and the address
-	bsf	A1_R3H,6	;Set the exceptional event bit if it was clear
+	bsf	A1_R3H,A_EXCEV	;Set the exceptional event bit if it was clear
 	movlb	0		;Get a pseudorandom four-bit number and put it
 	movf	TMR1H,W		; into the low nibble of the buffer; this way
 	xorwf	TMR1L,W		; we replace address (which the host already
