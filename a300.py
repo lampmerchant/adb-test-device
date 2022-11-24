@@ -22,10 +22,10 @@ class A300Writer:
           (0x80 | len(self.deque),),
         )))
         self.deque = deque()
-    elif len(self.deque) == 7 and (byte < 0x80 or byte > 0x8F):
+    elif len(self.deque) == 7 and (byte < 0x80 or byte > 0x9F):
       self.deque.append(byte)
       self.talk(0, bytes(self.deque.popleft() for i in range(8)))
-    elif len(self.deque) == 7 and 0x80 <= byte <= 0x8F:
+    elif len(self.deque) == 7 and 0x80 <= byte <= 0x9F:
       self.talk(0, bytes(chain((self.deque.popleft() for i in range(7)), (0x87,))))
       self.deque.append(byte)
     else:
@@ -59,7 +59,7 @@ class GlobalVillageA300(AdbDevice):
     if len(data) != 8: raise ValueError("GV A300 doesn't know how to deal with listen 0s that aren't 8 bytes long")
     if 0x80 <= data[7] <= 0x87:
       self.write_func(data[:data[7] & 0x7], self.write)
-    elif 0x88 <= data[7] <= 0x8F:
+    elif 0x88 <= data[7] <= 0x9F:
       raise ValueError('unrecognized listen 0 payload: %s' % repr(data))
     else:
       self.write_func(data, self.write)
